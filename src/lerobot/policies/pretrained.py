@@ -1,16 +1,49 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""
+预训练策略基类模块
+
+本模块定义了所有策略模型的基类 PreTrainedPolicy，提供统一的接口用于：
+- 模型加载和保存
+- 训练和推理
+- 与 HuggingFace Hub 集成
+
+策略架构:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      PreTrainedPolicy 继承体系                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PreTrainedPolicy (基类)                                                    │
+│  ├── 核心方法:                                                              │
+│  │   ├── forward(batch) -> loss, info     # 训练前向传播                    │
+│  │   ├── select_action(obs) -> action     # 推理时选择动作                  │
+│  │   ├── reset()                          # 重置内部状态                    │
+│  │   └── get_optim_params() -> params     # 获取优化器参数                  │
+│  │                                                                         │
+│  ├── Hub 集成:                                                              │
+│  │   ├── from_pretrained()                # 从 Hub 加载模型                 │
+│  │   └── save_pretrained()                # 保存模型到 Hub                  │
+│  │                                                                         │
+│  └── 具体实现:                                                              │
+│      ├── ACTPolicy      # Action Chunking Transformer                      │
+│      ├── DiffusionPolicy # Diffusion Policy                                │
+│      ├── VQBeTPolicy    # Vector-Quantized Behavior Transformer            │
+│      ├── TDMPCPolicy    # TD-MPC                                           │
+│      └── ...                                                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+使用示例:
+```python
+# 加载预训练模型
+policy = ACTPolicy.from_pretrained("lerobot/act_pusht")
+
+# 推理
+action = policy.select_action({"observation.image": image})
+
+# 训练
+loss, info = policy.forward(batch)
+loss.backward()
+```
+"""
 import abc
 import builtins
 import dataclasses
@@ -44,7 +77,48 @@ class ActionSelectKwargs(TypedDict, total=False):
 
 class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
     """
-    Base class for policy models.
+    预训练策略基类。
+    
+    所有策略模型（ACT, Diffusion, VQBeT 等）都继承此类。
+    提供统一的接口用于训练、推理和模型管理。
+    
+    核心抽象方法（子类必须实现）:
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  forward(batch) -> (loss, info)                                        │
+    │  ├── 训练时的前向传播                                                   │
+    │  ├── 输入: 数据批次（观测 + 动作）                                      │
+    │  └── 输出: 损失值和日志信息                                             │
+    │                                                                         │
+    │  select_action(obs) -> action                                          │
+    │  ├── 推理时选择动作                                                     │
+    │  ├── 输入: 当前观测                                                     │
+    │  └── 输出: 要执行的动作                                                 │
+    │                                                                         │
+    │  reset()                                                               │
+    │  └── 重置内部状态（如动作队列、隐藏状态等）                              │
+    │                                                                         │
+    │  get_optim_params() -> params                                          │
+    │  └── 返回优化器参数配置（支持不同参数组使用不同学习率）                   │
+    └─────────────────────────────────────────────────────────────────────────┘
+    
+    Hub 集成功能:
+    - from_pretrained(): 从 HuggingFace Hub 或本地加载模型
+    - save_pretrained(): 保存模型到本地
+    - push_to_hub(): 推送模型到 HuggingFace Hub
+    
+    使用示例:
+    ```python
+    # 加载预训练模型
+    policy = ACTPolicy.from_pretrained("lerobot/act_pusht")
+    
+    # 推理模式
+    policy.eval()
+    action = policy.select_action(observation)
+    
+    # 训练模式
+    policy.train()
+    loss, info = policy.forward(batch)
+    ```
     """
 
     config_class: None

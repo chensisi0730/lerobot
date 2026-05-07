@@ -13,9 +13,36 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Train a policy.
+"""训练策略模型的主脚本。
 
-Requires: pip install 'lerobot[training]'  (includes dataset + accelerate + wandb extras)
+这是 LeRobot 框架的核心训练入口，支持：
+- 从 HuggingFace Hub 或本地加载遥操作数据集
+- 训练多种策略（ACT, Diffusion, VQBeT, TD-MPC 等）
+- 支持分布式训练和混合精度训练
+- 支持训练过程中评估和检查点保存
+- 支持推送到 HuggingFace Hub
+
+训练流程架构图:
+┌─────────────────────────────────────────────────────────────────┐
+│                        训练主流程                                │
+├─────────────────────────────────────────────────────────────────┤
+│  1. 加载数据集 (LeRobotDataset)                                  │
+│     ↓                                                           │
+│  2. 创建策略网络 (ACT/Diffusion/VQBeT等)                         │
+│     ↓                                                           │
+│  3. 创建优化器和学习率调度器                                      │
+│     ↓                                                           │
+│  4. 训练循环:                                                    │
+│     ┌──────────────────────────────────┐                        │
+│     │  获取batch → 前向传播 → 计算loss  │                        │
+│     │       ↓                          │                        │
+│     │  反向传播 → 梯度裁剪 → 更新参数   │                        │
+│     └──────────────────────────────────┘                        │
+│     ↓                                                           │
+│  5. 定期保存检查点、评估策略、记录日志                             │
+└─────────────────────────────────────────────────────────────────┘
+
+安装依赖: pip install 'lerobot[training]'  (包含 dataset + accelerate + wandb 扩展)
 """
 
 import dataclasses
@@ -74,26 +101,29 @@ def update_policy(
     sample_weighter=None,
 ) -> tuple[MetricsTracker, dict | None]:
     """
-    Performs a single training step to update the policy's weights.
+    执行单步训练更新策略权重。
+    
+    这是训练循环的核心函数，完成以下操作：
+    1. 前向传播：计算预测动作和损失
+    2. 反向传播：计算梯度
+    3. 梯度裁剪：防止梯度爆炸
+    4. 优化器更新：更新模型参数
+    5. 学习率调度：调整学习率
 
-    This function executes the forward and backward passes, clips gradients, and steps the optimizer and
-    learning rate scheduler. Accelerator handles mixed-precision training automatically.
+    参数说明:
+        train_metrics: 训练指标跟踪器，记录 loss、梯度范数、学习率等
+        policy: 待训练的策略模型（如 ACTPolicy, DiffusionPolicy 等）
+        batch: 训练数据批次，包含观测（图像、状态）和动作
+        optimizer: 优化器（如 AdamW）
+        grad_clip_norm: 梯度裁剪阈值，防止梯度爆炸
+        accelerator: Accelerate 实例，处理分布式训练和混合精度
+        lr_scheduler: 学习率调度器（可选）
+        lock: 线程锁，用于多线程安全更新（可选）
+        sample_weighter: 样本权重计算器，用于加权训练（可选，如 RA-BC）
 
-    Args:
-        train_metrics: A MetricsTracker instance to record training statistics.
-        policy: The policy model to be trained.
-        batch: A batch of training data.
-        optimizer: The optimizer used to update the policy's parameters.
-        grad_clip_norm: The maximum norm for gradient clipping.
-        accelerator: The Accelerator instance for distributed training and mixed precision.
-        lr_scheduler: An optional learning rate scheduler.
-        lock: An optional lock for thread-safe optimizer updates.
-        sample_weighter: Optional SampleWeighter instance for per-sample loss weighting.
-
-    Returns:
-        A tuple containing:
-        - The updated MetricsTracker with new statistics for this step.
-        - A dictionary of outputs from the policy's forward pass, for logging purposes.
+    返回值:
+        - 更新后的 MetricsTracker，包含本轮训练统计
+        - 策略前向传播的输出字典，用于日志记录
     """
     start_time = time.perf_counter()
     policy.train()
@@ -163,19 +193,50 @@ def update_policy(
 @parser.wrap()
 def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
     """
-    Main function to train a policy.
+    训练策略的主函数。
+    
+    这是训练管道的入口点，协调整个训练流程：
+    
+    训练流程详解:
+    ┌──────────────────────────────────────────────────────────────────────┐
+    │  阶段1: 初始化                                                        │
+    │  ├── 验证配置有效性                                                   │
+    │  ├── 创建 Accelerator（支持分布式训练）                                │
+    │  ├── 设置随机种子（保证可复现性）                                      │
+    │  └── 初始化 WandB 日志（可选）                                        │
+    ├──────────────────────────────────────────────────────────────────────┤
+    │  阶段2: 数据准备                                                      │
+    │  ├── 加载数据集（从本地或 HuggingFace Hub）                           │
+    │  ├── 创建数据加载器（支持多进程加载）                                  │
+    │  └── 创建 EpisodeAwareSampler（可选，用于序列采样）                   │
+    ├──────────────────────────────────────────────────────────────────────┤
+    │  阶段3: 模型创建                                                      │
+    │  ├── 创建策略网络（ACT/Diffusion/VQBeT等）                            │
+    │  ├── 创建预处理器和后处理器（数据归一化等）                            │
+    │  ├── 创建优化器和学习率调度器                                         │
+    │  └── 可选：加载 PEFT 适配器（LoRA等）                                 │
+    ├──────────────────────────────────────────────────────────────────────┤
+    │  阶段4: 训练循环                                                      │
+    │  for step in range(total_steps):                                     │
+    │      ├── 获取数据批次                                                 │
+    │      ├── 调用 update_policy() 更新模型                               │
+    │      ├── 记录训练指标                                                 │
+    │      ├── 定期保存检查点                                               │
+    │      └── 定期评估策略（如果配置了环境）                                │
+    ├──────────────────────────────────────────────────────────────────────┤
+    │  阶段5: 收尾                                                          │
+    │  ├── 保存最终模型                                                     │
+    │  └── 推送到 HuggingFace Hub（可选）                                   │
+    └──────────────────────────────────────────────────────────────────────┘
 
-    This function orchestrates the entire training pipeline, including:
-    - Setting up logging, seeding, and device configuration.
-    - Creating the dataset, evaluation environment (if applicable), policy, and optimizer.
-    - Handling resumption from a checkpoint.
-    - Running the main training loop, which involves fetching data batches and calling `update_policy`.
-    - Periodically logging metrics, saving model checkpoints, and evaluating the policy.
-    - Pushing the final trained model to the Hugging Face Hub if configured.
-
-    Args:
-        cfg: A `TrainPipelineConfig` object containing all training configurations.
-        accelerator: Optional Accelerator instance. If None, one will be created automatically.
+    参数:
+        cfg: TrainPipelineConfig 对象，包含所有训练配置
+             - dataset: 数据集配置
+             - policy: 策略配置（ACT/Diffusion等）
+             - env: 评估环境配置（可选）
+             - batch_size, steps, lr 等超参数
+        accelerator: Accelerator 实例（可选），用于分布式训练
+                    如果为 None，会自动创建
     """
     from lerobot.utils.import_utils import require_package
 

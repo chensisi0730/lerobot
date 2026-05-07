@@ -1,16 +1,36 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""
+环境配置模块
+
+本模块定义了 LeRobot 支持的所有仿真环境的配置类。
+
+环境架构:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LeRobot 环境系统                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  EnvConfig (基类)                                                           │
+│  ├── task: 任务名称                                                         │
+│  ├── fps: 控制频率                                                          │
+│  ├── features: 观测和动作特征定义                                            │
+│  └── create_envs(): 创建环境实例                                            │
+│                                                                             │
+│  具体环境实现:                                                               │
+│  ├── AlohaEnv - ALOHA 双臂机器人仿真                                        │
+│  ├── PushtEnv - PushT 推方块任务                                            │
+│  ├── LiberoEnv - LIBERO 操作基准测试                                        │
+│  ├── MetaworldEnv - MetaWorld 多任务基准                                    │
+│  ├── RobocasaEnv - RoboCasa 厨房环境                                        │
+│  └── HubEnvConfig - 从 HuggingFace Hub 加载环境                             │
+│                                                                             │
+│  环境创建流程:                                                               │
+│  cfg.create_envs() ──→ gym.make() ──→ VectorEnv                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+支持的环境类型:
+- 仿真环境: 用于训练时评估和测试策略
+- 真实机器人: 通过 gym_dora 连接实际硬件
+"""
 
 from __future__ import annotations
 
@@ -54,6 +74,38 @@ def _make_vec_env_cls(use_async: bool, n_envs: int):
 
 @dataclass
 class EnvConfig(draccus.ChoiceRegistry, abc.ABC):
+    """
+    环境配置基类。
+    
+    所有仿真环境配置都继承此类，通过 draccus 实现多态配置。
+    
+    关键概念:
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  task: 任务名称，如 "AlohaInsertion-v0"                                 │
+    │  fps: 控制频率，决定动作执行间隔                                          │
+    │  features: 定义观测和动作的数据格式                                       │
+    │  features_map: 将环境原始输出映射到策略期望的格式                         │
+    └─────────────────────────────────────────────────────────────────────────┘
+    
+    特征类型 (FeatureType):
+    - ACTION: 机器人动作（关节位置/速度等）
+    - STATE: 机器人状态（关节位置、末端位姿等）
+    - VISUAL: 图像观测（相机画面）
+    - ENV: 环境状态（物体位置等）
+    
+    使用示例:
+    ```python
+    # 创建 ALOHA 环境配置
+    env_cfg = AlohaEnv(task="AlohaInsertion-v0")
+    
+    # 创建环境实例
+    envs = env_cfg.create_envs(n_envs=4)
+    
+    # 与 gym 交互
+    obs, info = envs.reset()
+    obs, reward, done, truncated, info = envs.step(actions)
+    ```
+    """
     task: str | None = None
     fps: int = 30
     features: dict[str, PolicyFeature] = field(default_factory=dict)

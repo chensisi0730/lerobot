@@ -1,18 +1,51 @@
-#!/usr/bin/env python
+"""
+LeRobot 数据集模块
 
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+本模块实现了 LeRobot 的核心数据集类，用于加载和处理机器人遥操作数据。
+
+数据集架构:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        LeRobotDataset 结构                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  数据来源:                                                                   │
+│  ├── 本地磁盘: root/{repo_id}/                                              │
+│  └── HuggingFace Hub: https://huggingface.co/datasets/{repo_id}            │
+│                                                                             │
+│  文件结构:                                                                   │
+│  .                                                                         │
+│  ├── data/                          # 主数据 (parquet 格式)                 │
+│  │   └── chunk-XXX/file-XXX.parquet                                        │
+│  ├── meta/                          # 元数据                                │
+│  │   ├── info.json                  # 数据集信息                            │
+│  │   ├── stats.json                 # 统计数据 (用于归一化)                  │
+│  │   └── tasks.parquet              # 任务描述                              │
+│  └── videos/                        # 视频数据 (可选)                        │
+│      └── observation.images.XXX/                                           │
+│                                                                             │
+│  关键功能:                                                                   │
+│  ├── 时间戳对齐: delta_timestamps 支持加载历史/未来帧                        │
+│  ├── 视频解码: 支持从视频文件提取帧                                          │
+│  ├── 数据增强: 支持图像变换                                                  │
+│  └── 流式加载: 支持大数据集的内存高效加载                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+使用示例:
+```python
+# 从 Hub 加载数据集
+dataset = LeRobotDataset("lerobot/pusht")
+
+# 加载特定 episode
+dataset = LeRobotDataset("lerobot/pusht", episodes=[0, 1, 2])
+
+# 加载带时间偏移的数据
+delta_timestamps = {
+    "action": [-0.1, 0, 0.1],  # 加载前后 0.1 秒的动作
+}
+dataset = LeRobotDataset("lerobot/pusht", delta_timestamps=delta_timestamps)
+```
+"""
 import contextlib
 import logging
 from collections.abc import Callable
@@ -44,6 +77,39 @@ logger = logging.getLogger(__name__)
 
 
 class LeRobotDataset(torch.utils.data.Dataset):
+    """
+    LeRobot 数据集类。
+    
+    用于加载和管理机器人遥操作数据，支持从本地或 HuggingFace Hub 加载。
+    
+    数据加载模式:
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  模式1: 加载已有数据集                                                   │
+    │  ├── 本地: root/{repo_id}/ 目录下已有数据                                │
+    │  └── Hub: 从 huggingface.co/datasets/{repo_id} 下载                     │
+    │                                                                         │
+    │  模式2: 创建新数据集                                                     │
+    │  └── 使用 create() 类方法创建空数据集，用于录制                          │
+    └─────────────────────────────────────────────────────────────────────────┘
+    
+    核心功能:
+    - 时间戳对齐: 通过 delta_timestamps 加载历史/未来帧
+    - 视频解码: 从视频文件实时提取帧
+    - 数据归一化: 使用数据集统计信息
+    - Episode 管理: 支持按 episode 加载和采样
+    
+    参数:
+        repo_id: 数据集 ID (如 "lerobot/pusht" 或本地路径)
+        root: 本地根目录
+        episodes: 要加载的 episode 索引列表
+        image_transforms: 图像变换函数
+        delta_timestamps: 时间偏移配置，用于加载序列数据
+            例如: {"action": [-0.1, 0, 0.1]} 加载前后 0.1 秒的动作
+        tolerance_s: 时间戳同步容差
+        revision: Git 版本 (分支/标签/提交)
+        download_videos: 是否下载视频文件
+        video_backend: 视频解码后端 ("pyav", "torchcodec")
+    """
     def __init__(
         self,
         repo_id: str,

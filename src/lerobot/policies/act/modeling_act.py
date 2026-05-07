@@ -13,10 +13,40 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Action Chunking Transformer Policy
+"""Action Chunking Transformer (ACT) 策略实现
 
-As per Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware (https://huggingface.co/papers/2304.13705).
-The majority of changes here involve removing unused code, unifying naming, and adding helpful comments.
+ACT 是一种基于 Transformer 的模仿学习策略，核心特点：
+1. 动作分块 (Action Chunking): 一次预测多步动作，而非单步
+2. VAE 编码: 使用变分自编码器提高多模态数据的表现
+3. 时序集成 (Temporal Ensembling): 可选的动作平滑技术
+
+论文: Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware
+链接: https://huggingface.co/papers/2304.13705
+
+ACT 架构示意图:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ACT 策略架构                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  输入观测                                                                    │
+│  ├── 图像观测 ──→ ResNet Backbone ──→ 视觉特征                              │
+│  └── 机器人状态 ──→ 状态编码器 ──→ 状态特征                                  │
+│                                                                             │
+│  VAE 编码器 (可选)                                                           │
+│  └── 随机潜变量 z ~ N(μ, σ²) ──→ 增强多模态数据表现                          │
+│                                                                             │
+│  Transformer Decoder                                                        │
+│  ├── 视觉特征 + 状态特征 + z ──→ Cross Attention                            │
+│  └── 自回归解码 ──→ 动作序列 [a_t, a_{t+1}, ..., a_{t+chunk_size}]          │
+│                                                                             │
+│  输出: chunk_size 步动作                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+关键参数:
+- chunk_size: 一次预测的动作步数 (默认 100)
+- n_action_steps: 实际执行的动作步数 (默认 8)
+- use_vae: 是否使用 VAE (默认 True)
+- temporal_ensemble_coeff: 时序集成系数 (可选)
 """
 
 import math
@@ -41,8 +71,37 @@ from .configuration_act import ACTConfig
 
 class ACTPolicy(PreTrainedPolicy):
     """
-    Action Chunking Transformer Policy as per Learning Fine-Grained Bimanual Manipulation with Low-Cost
-    Hardware (paper: https://huggingface.co/papers/2304.13705, code: https://github.com/tonyzhaozh/act)
+    Action Chunking Transformer (ACT) 策略类。
+    
+    ACT 是一种模仿学习策略，通过遥操作数据训练机器人执行复杂操作任务。
+    
+    核心思想:
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │  传统方法: 观测 o_t ──→ 策略 π ──→ 单步动作 a_t                         │
+    │                                                                         │
+    │  ACT 方法: 观测 o_t ──→ 策略 π ──→ 动作序列 [a_t, ..., a_{t+k}]         │
+    │           └── 一次预测多步，减少累积误差                                 │
+    └─────────────────────────────────────────────────────────────────────────┘
+    
+    动作执行机制:
+    - chunk_size = 100: 每次预测 100 步动作
+    - n_action_steps = 8: 每次执行 8 步后重新预测
+    - 这样可以平衡动作连贯性和响应速度
+    
+    使用示例:
+    ```python
+    # 加载预训练模型
+    policy = ACTPolicy.from_pretrained("lerobot/act_pusht")
+    
+    # 推理
+    action = policy.select_action({"observation.image": image, "observation.state": state})
+    
+    # 训练
+    loss, info = policy.forward(batch)
+    ```
+    
+    论文: https://huggingface.co/papers/2304.13705
+    代码: https://github.com/tonyzhaozh/act
     """
 
     config_class = ACTConfig
