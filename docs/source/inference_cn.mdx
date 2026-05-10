@@ -1,0 +1,207 @@
+# 策略部署 (lerobot-rollout)
+
+`lerobot-rollout` 是用于在真实机器人上部署训练有素策略的单一 CLI。它支持多种执行策略和推理后端，从快速评估到连续录制和人在环数据收集。
+
+## 快速开始
+
+除了机器人和策略额外依赖外，不需要额外的依赖。
+
+```bash
+lerobot-rollout \
+    --strategy.type=base \
+    --policy.path=lerobot/act_koch_real \
+    --robot.type=koch_follower \
+    --robot.port=/dev/ttyACM0 \
+    --task="pick up cube" \
+    --duration=30
+```
+
+这将运行策略 30 秒，不进行录制。
+
+---
+
+## 策略
+
+使用 `--strategy.type=<name>` 选择策略。每个策略定义不同的控制循环，具有自己的录制和交互语义。
+
+### 基础策略 (`--strategy.type=base`)
+
+无数据录制的自主策略执行。用于快速评估、演示，或者当你只需要观察机器人时。
+
+```bash
+lerobot-rollout \
+    --strategy.type=base \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
+    --task="Put lego brick into the box" \
+    --duration=60
+```
+
+| 标志 | 描述 |
+| ---------------- | ------------------------------------------------------ |
+| `--duration` | 运行时间（秒，0 = 无限）|
+| `--task` | 传递给策略的任务描述 |
+| `--display_data` | 将观测/动作流式传输到 Rerun 进行可视化 |
+
+### 哨兵策略 (`--strategy.type=sentry`)
+
+周期性上传到 Hugging Face Hub 的连续自主录制。Episode 边界根据相机分辨率和 FPS 自动计算，以便每个保存的 episode 产生一个完整的视频文件，保持上传效率。
+
+策略状态（隐藏状态、RTC 队列）在 episode 边界之间持续存在：机器人在 episode 之间不会重置。
+
+```bash
+lerobot-rollout \
+    --strategy.type=sentry \
+    --strategy.upload_every_n_episodes=5 \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
+    --dataset.repo_id=${HF_USER}/rollout_eval_data \
+    --dataset.single_task="Put lego brick into the box" \
+    --duration=3600
+```
+
+| 标志 | 描述 |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `--strategy.upload_every_n_episodes` | 每 N 个 episode 推送到 Hub（默认：5）|
+| `--strategy.target_video_file_size_mb` | Episode 轮换的目标视频文件大小（默认：自动）|
+| `--dataset.repo_id` | **必需。** 录制数据集的 Hub 仓库 |
+| `--dataset.push_to_hub` | 关闭时是否推送到 Hub（默认：true）|
+
+### 高亮策略 (`--strategy.type=highlight`)
+
+通过内存有界环形缓冲区按需进行自主 rollout。机器人连续运行，同时缓冲区捕获最后 N 秒的遥测数据。按保存键刷新缓冲区并开始实时录制；再次按下保存 episode。
+
+```bash
+lerobot-rollout \
+    --strategy.type=highlight \
+    --strategy.buffer_time_s=30 \
+    --strategy.save_key=s \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
+    --dataset.repo_id=${HF_USER}/highlight_data \
+    --dataset.single_task="Put lego brick into the box" \
+    --duration=3600
+```
+
+### 人在环策略 (`--strategy.type=human_in_the_loop`)
+
+人在环数据收集，遥操作设备直接覆盖策略动作。当按下覆盖键时，遥操作设备动作取代策略动作；当释放时，策略恢复控制。
+
+```bash
+lerobot-rollout \
+    --strategy.type=human_in_the_loop \
+    --strategy.override_key=space \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --teleop.type=so100_leader \
+    --teleop.port=/dev/ttyACM1 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}" \
+    --dataset.repo_id=${HF_USER}/hil_data \
+    --dataset.single_task="Put lego brick into the box" \
+    --duration=3600
+```
+
+## 推理后端
+
+### 基础推理 (`--inference.backend=default`)
+
+标准 PyTorch 推理。按顺序执行每个前向传递。
+
+### 编译推理 (`--inference.backend=compiled`)
+
+使用 `torch.compile()` 加速推理。首次前向传递会有编译开销，后续调用更快。
+
+### RPC 推理 (`--inference.backend=rpc`)
+
+通过 gRPC 在单独进程中运行推理。允许在另一台机器上运行策略，或在具有更多内存的机器上运行。
+
+```bash
+lerobot-rollout \
+    --strategy.type=base \
+    --policy.path=${HF_USER}/my_policy \
+    --inference.backend=rpc \
+    --inference.rpc.address=localhost:50051 \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --duration=60
+```
+
+## 常见用法
+
+### 评估策略
+
+```bash
+lerobot-rollout \
+    --strategy.type=base \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0}}" \
+    --task="pick up cube" \
+    --duration=60
+```
+
+### 收集评估数据
+
+```bash
+lerobot-rollout \
+    --strategy.type=sentry \
+    --strategy.upload_every_n_episodes=10 \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0}}" \
+    --dataset.repo_id=${HF_USER}/eval_data \
+    --dataset.single_task="pick up cube" \
+    --duration=3600
+```
+
+### 人在环数据收集
+
+```bash
+lerobot-rollout \
+    --strategy.type=human_in_the_loop \
+    --strategy.override_key=space \
+    --policy.path=${HF_USER}/my_policy \
+    --robot.type=so100_follower \
+    --robot.port=/dev/ttyACM0 \
+    --teleop.type=so100_leader \
+    --teleop.port=/dev/ttyACM1 \
+    --robot.cameras="{ front: {type: opencv, index_or_path: 0}}" \
+    --dataset.repo_id=${HF_USER}/hil_data \
+    --dataset.single_task="pick up cube" \
+    --duration=3600
+```
+
+## 策略选择
+
+你可以通过几种方式指定策略：
+
+| 方式 | 参数 | 示例 |
+|------|------|------|
+| 从 Hub 加载 | `--policy.path=lerobot/act_koch_real` | 加载预训练策略 |
+| 本地检查点 | `--policy.path=/path/to/checkpoint` | 加载本地权重 |
+| 指定类型 | `--policy.type=act` | 仅指定类型（使用默认权重）|
+
+## 机器人配置
+
+配置机器人硬件：
+
+```bash
+--robot.type=so100_follower \
+--robot.port=/dev/ttyACM0 \
+--robot.id=my_robot
+```
+
+添加相机：
+
+```bash
+--robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}"
+```

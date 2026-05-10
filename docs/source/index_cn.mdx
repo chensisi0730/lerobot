@@ -1,0 +1,198 @@
+# LeRobot 中文文档
+
+**真实机器人学习的 state-of-the-art 机器学习**
+
+---
+
+## 概述
+
+🤗 LeRobot 旨在为 PyTorch 中的真实机器人提供模型、数据集和工具。我们的目标是降低机器人学的门槛，让每个人都能从共享数据集和预训练模型中受益。
+
+🤗 LeRobot 包含了已证明可以迁移到真实世界的 state-of-the-art 方法，重点关注模仿学习和强化学习。
+
+🤗 LeRobot 提供了一系列预训练模型、包含人类演示的数据集和仿真环境，让每个人都能快速上手。
+
+🤗 LeRobot 在 HuggingFace 页面上托管预训练模型和数据集。
+
+欢迎加入 [Discord](https://discord.gg/s3KuuzsPFb) 上的 LeRobot 社区！
+
+---
+
+## 核心特性
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LeRobot 核心特性                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  🤖 统一机器人接口                                                          │
+│     └── 支持从低成本机械臂 (SO-100) 到人形机器人的各种平台                  │
+│                                                                             │
+│  📦 标准化数据集格式                                                        │
+│     └── Parquet + MP4 格式，支持 HuggingFace Hub 高效存储和流式传输        │
+│                                                                             │
+│  🧠 先进策略模型                                                            │
+│     └── ACT, Diffusion, VQBeT, TD-MPC, π₀, GR00T 等                      │
+│                                                                             │
+│  🛠️ 完整工具链                                                             │
+│     └── 数据收集、训练、评估、部署一站式解决方案                             │
+│                                                                             │
+│  ☁️ 云端支持                                                               │
+│     └── HuggingFace Spaces, Gradio, WebSocket                             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 快速开始
+
+### 安装
+
+```bash
+# 安装 LeRobot
+pip install lerobot
+
+# 验证安装
+lerobot-info
+```
+
+### 数据集
+
+```python
+from lerobot.datasets import LeRobotDataset
+
+# 从 Hub 加载数据集
+dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
+
+# 访问数据
+episode_index = 0
+print(f"{dataset[episode_index]['action'].shape=}\n")
+```
+
+### 训练
+
+```bash
+# 训练策略
+lerobot-train \
+    --policy=act \
+    --dataset.repo_id=lerobot/pusht
+```
+
+### 推理
+
+```python
+from lerobot.policies import ACTPolicy
+
+# 加载预训练模型
+policy = ACTPolicy.from_pretrained("lerobot/act_pusht")
+
+# 推理
+action = policy.select_action(observation)
+```
+
+---
+
+## 支持的机器人
+
+| 机器人 | 类型 | 说明 |
+|--------|------|------|
+| **SO-101** | 单臂/双臂 | 低成本机械臂 |
+| **Koch** | 单臂 | 开源机械臂 |
+| **LeKiwi** | 双臂 | 远程操作机械臂 |
+| **Hope Jr** | 单臂 | 教育机械臂 |
+| **Reachy 2** | 双臂 | 人形机器人 |
+| **Unitree G1** | 人形 | 人形机器人 |
+
+---
+
+## 支持的策略
+
+| 策略 | 类型 | 特点 |
+|------|------|------|
+| **ACT** | 模仿学习 | 动作分块 + Transformer |
+| **Diffusion** | 模仿学习 | 扩散模型 |
+| **VQBeT** | 模仿学习 | 向量量化行为 Transformer |
+| **TD-MPC** | 强化学习 | Model-based RL |
+| **π₀** | VLA | 视觉-语言-动作 |
+| **GR00T** | VLA | NVIDIA 视觉-语言-动作 |
+
+---
+
+## 数据集格式
+
+LeRobot 使用标准化的数据集格式：
+
+```
+dataset/
+├── data/                    # Parquet 文件
+│   └── chunk-XXX/
+│       └── file-XXX.parquet
+├── meta/                    # 元数据
+│   ├── info.json           # 数据集信息
+│   ├── stats.json          # 统计信息 (归一化)
+│   └── tasks.parquet       # 任务描述
+└── videos/                  # MP4 视频
+    └── observation.images.XXX/
+```
+
+---
+
+## 文档目录
+
+### 🏁 入门
+- [安装指南](./installation.mdx) - 安装和配置 LeRobot
+
+### 📚 教程
+- [机器人模仿学习](./il_robots.mdx) - 使用遥操作数据训练策略
+- [自定义策略](./bring_your_own_policies.mdx) - 集成自己的策略
+- [硬件集成](./integrate_hardware.mdx) - 连接真实机器人
+- [强化学习训练](./hilserl.mdx) - 训练 RL 策略
+- [仿真训练](./hilserl_sim.mdx) - 在仿真中训练
+- [多 GPU 训练](./multi_gpu_training.mdx) - 分布式训练
+- [人类在环数据收集](./hil_data_collection.mdx) - 实时数据收集
+- [PEFT 训练](./peft_training.mdx) - LoRA 等参数高效微调
+
+### 📊 数据集
+- [使用 LeRobotDataset](./lerobot-dataset-v3.mdx) - 数据集操作指南
+- [迁移数据集](./porting_datasets_v3.mdx) - 转换旧格式数据集
+- [数据集工具](./using_dataset_tools.mdx) - 数据集管理工具
+
+### 🧠 策略
+- [ACT](./act.mdx) - Action Chunking Transformer
+- [SmolVLA](./smolvla.mdx) - 小型视觉语言动作模型
+- [π₀](./pi0.mdx) - Pi0 视觉语言动作模型
+- [π₀-FAST](./pi0fast.mdx) - 快速 Pi0 变体
+- [π₀.₅](./pi05.mdx) - Pi0.5 变体
+- [GR00T](./groot.mdx) - NVIDIA GR00T N1.5
+- [X-VLA](./xvla.mdx) - 跨模态视觉语言动作
+
+### 🔧 推理与部署
+- [策略部署](./inference.mdx) - 使用 lerobot-rollout
+- [异步推理](./async.mdx) - 异步推理模式
+- [实时分块](./rtc.mdx) - Real-Time Chunking
+
+### 🎮 仿真环境
+- [Hub 环境](./envhub.mdx) - 从 HuggingFace Hub 加载环境
+- [LeIsaac 仿真](./envhub_leisaac.mdx) - LeIsaac 仿真控制与训练
+
+### 🏋️ 基准测试
+- [LIBERO](./libero.mdx) - 操作基准
+- [Meta-World](./metaworld.mdx) - 多任务基准
+- [RoboCasa](./robocasa.mdx) - 厨房环境
+- [IsaacLab Arena](./envhub_isaaclab_arena.mdx) - NVIDIA IsaacLab 环境
+
+---
+
+## 参考资源
+
+- [GitHub](https://github.com/huggingface/lerobot)
+- [HuggingFace Hub](https://huggingface.co/lerobot)
+- [Discord 社区](https://discord.gg/s3KuuzsPFb)
+- [论文](https://huggingface.co/papers)
+
+---
+
+## 许可证
+
+LeRobot 基于 Apache 2.0 许可证开源。

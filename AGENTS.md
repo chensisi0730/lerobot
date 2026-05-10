@@ -1,6 +1,9 @@
 This file provides guidance to AI agents when working with code in this repository.
 
 > **User-facing help → [`AGENT_GUIDE.md`](./AGENT_GUIDE.md)** (SO-101 setup, recording, picking a policy, training duration, eval — with copy-pasteable commands).
+>
+
+我是自动化毕业的工程师，拥有基本 RL 知识和LeRobot SO-101 机械臂 主从机械臂硬件，有RTX 2080 Ti 22GB，之前使用过 pybullet 仿真，现在想开始学习isaac Lab仿真和训练机器人自主遵循指令抓取物品。目前跑通 校准机械臂和Leader 遥操作，
 
 ## Project Overview
 

@@ -1,0 +1,250 @@
+# 安装指南
+
+本指南使用 `conda`（通过 miniforge）来管理环境（推荐）。如果你更喜欢其他环境管理器（如 `uv`、`venv`），请确保你有 Python >= 3.12 且支持 PyTorch >= 2.10，然后直接跳到[环境设置](#step-2-environment-setup)。
+
+## 第一步（仅 conda）：安装 [`miniforge`](https://conda-forge.org/download/)
+
+```bash
+wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+bash Miniforge3-$(uname)-$(uname -m).sh
+```
+
+## 第二步：环境设置
+
+创建 Python 3.12 的虚拟环境：
+
+<!-- prettier-ignore-start -->
+<hfoptions id="create_venv">
+<hfoption id="conda">
+```bash
+conda create -y -n lerobot python=3.12
+```
+</hfoption>
+<hfoption id="uv (PyTorch >= 2.10 only)">
+```bash
+uv python install 3.12
+uv venv --python 3.12
+```
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+然后激活虚拟环境。每次打开 shell 使用 lerobot 时都需要执行此操作：
+
+<!-- prettier-ignore-start -->
+
+<hfoptions id="activate_venv">
+<hfoption id="conda">
+```bash
+conda activate lerobot
+```
+
+> [!NOTE]
+> 在 WSL（Windows Subsystem for Linux）中安装 LeRobot 时，请确保也安装 `evdev`：
+>
+> ```bash
+> conda install evdev -c conda-forge
+> ```
+
+</hfoption>
+<hfoption id="uv (PyTorch >= 2.10 only)">
+```bash
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell
+.venv\Scripts\activate
+```
+
+> [!NOTE]
+> 在 WSL（Windows Subsystem for Linux）中安装 LeRobot 时，请确保也安装 `evdev`：
+>
+> ```bash
+> sudo apt install libevdev-dev
+> uv pip install evdev
+> ```
+
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+### 安装 `ffmpeg`（用于视频解码）
+
+LeRobot 默认使用 [TorchCodec](https://github.com/meta-pytorch/torchcodec) 进行视频解码，需要 `ffmpeg`。
+
+> [!NOTE]
+> **平台支持：** TorchCodec 在 macOS Intel (x86_64)、Linux ARM (aarch64, arm64, armv7l) 或 PyTorch < 2.8 的 Windows 上**不可用**。在这些平台上，LeRobot 会自动回退到 `pyav`——因此你不需要安装 `ffmpeg`，可以直接跳到第三步。
+
+如果你的平台支持 TorchCodec，使用以下方法之一安装 `ffmpeg`：
+
+<!-- prettier-ignore-start -->
+
+<hfoptions id="install_ffmpeg">
+<hfoption id="conda (any PyTorch version)">
+
+在 conda 环境中安装 `ffmpeg`。这适用于**所有 PyTorch 版本**，并且**对于 PyTorch < 2.10 是必需的**：
+
+```bash
+conda install ffmpeg -c conda-forge
+```
+
+> [!TIP]
+> 这通常会安装 `ffmpeg 8.X` 和 `libsvtav1` 编码器。如果你遇到问题（例如缺少 `libsvtav1`——用 `ffmpeg -encoders` 检查——或与 `torchcodec` 版本不匹配），可以明确安装 `ffmpeg 7.1.1`：
+>
+> ```bash
+> conda install ffmpeg=7.1.1 -c conda-forge
+> ```
+
+</hfoption>
+<hfoption id="uv (PyTorch >= 2.10 only)">
+
+从 **PyTorch >= 2.10**（TorchCodec ≥ 0.10）开始，TorchCodec 可以动态链接到系统级 `ffmpeg` 安装。这在使用 `uv` 或其他非 `conda` 环境管理器时很有用：
+
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# macOS (Apple Silicon)
+brew install ffmpeg
+```
+
+> [!IMPORTANT]
+> 系统级 `ffmpeg` **仅在 PyTorch >= 2.10**（TorchCodec ≥ 0.10）时支持。对于较旧的 PyTorch 版本，你**必须**使用 `conda install ffmpeg -c conda-forge`。
+
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+## 第三步：安装 LeRobot 🤗
+
+基础的 `lerobot` 安装是**轻量级**的——它只包含核心 ML 依赖（PyTorch、torchvision、numpy、opencv、einops、draccus、huggingface-hub、gymnasium、safetensors）。较重的依赖通过可选额外功能来控制，这样你只需安装需要的东西。
+
+### 从源码安装
+
+首先，克隆仓库并进入目录：
+
+```bash
+git clone https://github.com/huggingface/lerobot.git
+cd lerobot
+```
+
+然后，以可编辑模式安装库。如果你计划为代码做出贡献，这很有用。
+
+<!-- prettier-ignore-start -->
+<hfoptions id="install_lerobot_src">
+<hfoption id="conda">
+```bash
+pip install -e ".[core_scripts]"  # 用于机器人工作流（录制、回放、校准）
+pip install -e ".[training]"      # 用于训练策略
+pip install -e ".[all]"           # 全部（所有策略、环境、硬件、开发工具）
+```
+</hfoption>
+<hfoption id="uv">
+```bash
+uv pip install -e ".[core_scripts]"  # 用于机器人工作流（录制、回放、校准）
+uv pip install -e ".[training]"      # 用于训练策略
+uv pip install -e ".[all]"           # 全部（所有策略、环境、硬件、开发工具）
+```
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+### 从 PyPI 安装
+
+**核心库：**
+安装基础包：
+
+<!-- prettier-ignore-start -->
+<hfoptions id="install_lerobot_pypi">
+<hfoption id="conda">
+```bash
+pip install lerobot
+```
+</hfoption>
+<hfoption id="uv">
+```bash
+uv pip install lerobot
+```
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+_这仅安装核心 ML 依赖。对于大多数工作流，你需要添加额外功能。_
+
+**功能额外依赖：**
+LeRobot 提供**功能范围的额外依赖**，映射到常见工作流。如果你使用 `uv`，请将下面的 `pip install` 替换为 `uv pip install`。
+
+| 额外依赖 | 包含内容 | 典型用例 |
+| -------- | ------------------------------------------- | ----------------------------------- |
+| `dataset` | `datasets`、`av`、`torchcodec`、`jsonlines` | 加载和创建数据集 |
+| `training` | `dataset` + `accelerate`、`wandb` | 训练策略 |
+| `hardware` | `pynput`、`pyserial`、`deepdiff` | 连接真实机器人 |
+| `viz` | `rerun-sdk` | 录制/评估期间的可视化 |
+
+**组合额外依赖**将功能额外依赖组合成常见的 CLI 脚本：
+
+| 额外依赖 | 包含 | 典型用例 |
+| -------------- | ------------------------------ | ------------------------------------------------------- |
+| `core_scripts` | `dataset` + `hardware` + `viz` | `lerobot-record`、`lerobot-replay`、`lerobot-calibrate` |
+| `evaluation` | `av` | `lerobot-eval`（根据需要添加策略和环境额外依赖） |
+| `dataset_viz` | `dataset` + `viz` | `lerobot-dataset-viz`、`lerobot-imgtransform-viz` |
+
+```bash
+pip install 'lerobot[core_scripts]'          # 录制、回放、校准
+pip install 'lerobot[training]'              # 训练策略
+pip install 'lerobot[core_scripts,training]' # 录制 + 训练
+pip install 'lerobot[all]'                   # 全部
+```
+
+**策略、环境和硬件额外依赖**仍然可用于特定依赖：
+
+```bash
+pip install 'lerobot[pi]'             # Pi0/Pi0.5/Pi0-FAST 策略依赖
+pip install 'lerobot[smolvla]'        # SmolVLA 策略依赖
+pip install 'lerobot[diffusion]'      # Diffusion 策略依赖 (diffusers)
+pip install 'lerobot[aloha,pusht]'    # 仿真环境
+pip install 'lerobot[feetech]'        # Feetech 电机支持
+```
+
+_可以组合多个额外依赖（例如 `.[core_scripts,pi,pusht]`）。有关可用额外依赖的完整列表，请参阅 `pyproject.toml`。_
+
+### 故障排除
+
+如果遇到构建错误，你可能需要安装额外的系统依赖：`cmake`、`build-essential` 和 `ffmpeg libs`。
+要在 Linux 上安装这些，运行：
+
+```bash
+sudo apt-get install cmake build-essential python3-dev pkg-config libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libswscale-dev libswresample-dev libavfilter-dev
+```
+
+对于其他系统，请参阅：[编译 PyAV](https://pyav.org/docs/develop/overview/installation.html#bring-your-own-ffmpeg)
+
+## 可选依赖
+
+LeRobot 为特定功能提供可选额外依赖。可以组合多个额外依赖（例如 `.[aloha,feetech]`）。有关所有可用额外依赖，请参阅 `pyproject.toml`。如果你使用 `uv`，请将 `pip install` 替换为 `uv pip install`。
+
+### 仿真
+
+安装环境包：`aloha`（[gym-aloha](https://github.com/huggingface/gym-aloha)），或 `pusht`（[gym-pusht](https://github.com/huggingface/gym-pusht)）。
+这些会自动包含 `dataset` 额外依赖。
+
+```bash
+pip install -e ".[aloha]" # 或 "[pusht]" 例如
+```
+
+### 电机控制
+
+对于 Koch v1.1 安装 Dynamixel SDK，对于 SO100/SO101/Moss 安装 Feetech SDK。
+
+```bash
+pip install -e ".[feetech]" # 或 "[dynamixel]" 例如
+```
+
+### 实验跟踪
+
+Weights and Biases 包含在 `training` 额外依赖中。要使用 [Weights and Biases](https://docs.wandb.ai/quickstart) 进行实验跟踪，请登录：
+
+```bash
+wandb login
+```
+
+现在，如果你的机器人还没有准备好，你可以组装它，在左侧找到你的机器人类型。然后按照下面的链接使用 Lerobot 连接你的机器人。
